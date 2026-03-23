@@ -1,0 +1,6 @@
+
+SFC /scannow
+SFC /verifyonly
+DISM /Online /Cleanup-Image /RestoreHealth
+
+bootrec /fixmbr

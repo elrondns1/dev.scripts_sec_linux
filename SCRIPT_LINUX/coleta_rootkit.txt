@@ -1,0 +1,86 @@
+## Script PowerShell (cole em um arquivo `.ps1`, por exemplo `coleta_rootkit.ps1`)
+
+#```powershell
+# Caminho de saída
+$OutDir = "$env:USERPROFILE\Desktop\Coleta_Rootkit"
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+pause
+
+# 1. Lista de drivers
+driverquery /v /fo list > "$OutDir\drivers.txt"
+
+# 2. Lista de serviços
+Get-WmiObject -Class Win32_Service |
+  Select Name,State,StartMode,PathName |
+  Out-File "$OutDir\servicos.txt"
+
+# 3. Processos em execução
+tasklist /v > "$OutDir\processos.txt"
+
+# 4. Tarefas agendadas
+schtasks /query /fo LIST /v > "$OutDir\tarefas.txt"
+
+# 5. Chaves de autoexecução
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /s > "$OutDir\reg_run_hklm.txt"
+reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /s > "$OutDir\reg_run_hkcu.txt"
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows" /v AppInit_DLLs > "$OutDir\reg_appinit.txt"
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options" /s > "$OutDir\reg_ifeo.txt"
+
+# 6. Arquivos recentes em locais suspeitos (últimos 10 dias)
+Get-ChildItem -Path "C:\Users","C:\Windows\Temp","C:\Temp" -Recurse -ErrorAction SilentlyContinue |
+  Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-10) -and $_.Extension -in ".exe",".dll",".ps1",".vbs",".js",".sys" } |
+  Select-Object FullName,Length,LastWriteTime |
+  Out-File "$OutDir\arquivos_suspeitos.txt"
+
+# 7. Prefetch (se habilitado)
+if (Test-Path "C:\Windows\Prefetch") {
+  Get-ChildItem "C:\Windows\Prefetch" | 
+    Select-Object Name,Length,LastWriteTime |
+    Out-File "$OutDir\prefetch.txt"
+}
+
+# 8. Exporta informações do BCD (boot)
+bcdedit /enum all > "$OutDir\bcdedit.txt"
+
+# 9. Compacta tudo em ZIP
+$ZipPath = "$env:USERPROFILE\Desktop\Coleta_Rootkit.zip"
+if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
+Compress-Archive -Path $OutDir\* -DestinationPath $ZipPath
+
+Write-Host "✅ Coleta concluída. Arquivos salvos em: $ZipPath"
+```
+
+---
+
+### Como usar
+
+1. Abra o **PowerShell como Administrador**.
+2. Rode:
+
+   ```powershell
+   Set-ExecutionPolicy Bypass -Scope Process -Force
+   ```
+
+   (permite rodar o script apenas nessa sessão).
+3. Vá até a pasta onde salvou (`cd C:\Users\SeuUsuario\Desktop`).
+4. Execute:
+
+   ```powershell
+   .\coleta_rootkit.ps1
+   ```
+5. No fim, você terá um **Coleta_Rootkit.zip** no **Desktop**.
+
+---
+
+Esse ZIP vai conter:
+
+* **drivers.txt** → drivers carregados
+* **servicos.txt** → serviços e seus binários
+* **processos.txt** → lista de processos ativos
+* **tarefas.txt** → todas as tarefas agendadas
+* **reg_*.txt** → chaves de registro de inicialização
+* **arquivos_suspeitos.txt** → executáveis/DLLs recentes em locais críticos
+* **prefetch.txt** → histórico de execução (se disponível)
+* **bcdedit.txt** → configuração do boot
+

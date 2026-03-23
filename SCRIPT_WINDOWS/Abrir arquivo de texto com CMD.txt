@@ -1,0 +1,65 @@
+1) Abrir com o aplicativo padrão&&
+
+Use o comando start. Importante: o primeiro argumento entre aspas é o título da janela (use "" quando for abrir um arquivo).
+
+start "" "C:\Caminho\para\arquivo.pdf" start "" "C:\Users\Você\Documents\texto.txt" 
+
+Isso abre o arquivo com o programa associado (PDF → leitor de PDF, .txt → bloco de notas, etc).
+
+2) Abrir com um programa específico
+
+Chame o executável do programa e passe o caminho do arquivo.
+
+"C:\Program Files\Notepad++\notepad++.exe" "C:\Caminho\arquivo.txt" start "" "C:\Program Files\Notepad++\notepad++.exe" "C:\Caminho\arquivo.txt" 
+
+Se o caminho tiver espaços, sempre use aspas.
+
+3) Abrir um arquivo de texto direto no console
+
+type "C:\Caminho\arquivo.txt" more "C:\Caminho\arquivo.txt" 
+
+more permite rolar página a página.
+
+4) Abrir pastas / explorar local
+
+Abrir uma pasta no Explorador:
+
+start "" "C:\Users\Você\Documents" explorer "C:\Users\Você\Documents" start . 
+
+5) Executáveis / programas
+
+Para rodar um .exe basta chamá-lo (com ou sem start):
+
+"C:\Caminho\app.exe" start "" "C:\Caminho\app.exe" 
+
+6) Abrir como administrador (Executar com privilégios elevados)
+
+Abra o Prompt como Administraddministrador”) e rode o comando normalmente;
+
+Ou use runas (pedirá senha do usuário administrador):
+
+runas /user:Administrador "notepad.exe C:\Caminho\arquivo.txt" 
+
+Também pode usar PowerShell para elevar:
+
+powershell -Command "Start-Process 'notepad.exe' -ArgumentList 'C:\Caminho\arquivo.txt' -Verb RunAs" 
+
+7) Ver/alterar associação de tipos de arquivo (opcional)
+
+Ver qual programa abre .txt:
+
+assoc .txt ftype <resultado_de_assoc> 
+
+Exemplo (mostrar e setar):
+
+assoc .txt ftype txtfile ftype txtfile="C:\Windows\system32\NOTEPAD.EXE" "%1" 
+
+Dicas rápidas
+
+Sempre coloque caminhos com espaços entre aspas.
+
+start "" "caminho\arquivo" é a forma mais simples para abrir com o app padrão.
+
+Use type/more para visualizar texto sem abrir editor gráfico.
+
+Para abrir vários arquivos ao mesmo tempo, repita o comando start para cada um.

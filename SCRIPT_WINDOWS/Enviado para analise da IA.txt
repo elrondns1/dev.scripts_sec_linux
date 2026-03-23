@@ -1,0 +1,105 @@
+# Requires: Administrador PowerShell
+# Saída: C:\Temp\scheduled_tasks_analysis.csv
+
+$OutFile = "C:\Temp\scheduled_tasks_analysis.csv"
+New-Item -Path (Split-Path $OutFile) -ItemType Directory -Force | Out-Null
+
+# Padrões
+$userPathPatterns = @("(?i)\\AppData\\", "(?i)\\Temp\\", "(?i)\\Downloads\\", "(?i)\\Local\\Temp\\", "(?i)%temp%")
+$encodedPS = "(?i)-EncodedCommand\b|-e\b"
+$abusedUtils = "(?i)\b(rundll32|wscript|cscript|mshta|regsvr32|bitsadmin|certutil|powershell)\b"
+$urlOrIP = "(?i)\b((http|https):\/\/|[0-9]{1,3}(\.[0-9]{1,3}){3})\b"
+
+function Get-ExecutableFromAction {
+    param($actionString)
+    # Tenta extrair caminho do executável entre aspas, ou primeiro token
+    if ($actionString -match '"([^"]+)"') { return $matches[1] }
+    $firstToken = $actionString.Split(" ")[0]
+    return $firstToken
+}
+
+$results = @()
+
+Get-ScheduledTask | ForEach-Object {
+    $task = $_
+    $actionsCombined = ($task.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join " ; "
+    $triggers = ($task.Triggers | ForEach-Object { $_.TriggerType + (if ($_.StartBoundary) { " " + $_.StartBoundary } else { "" }) }) -join "; "
+    $runLevel = $task.Principal.RunLevel
+    $hidden = $task.Settings.Hidden
+
+    # Para cada ação, checar
+    foreach ($act in $task.Actions) {
+        $rawAction = "$($act.Execute) $($act.Arguments)".Trim()
+        $expanded = [Environment]::ExpandEnvironmentVariables($rawAction)
+        $exe = Get-ExecutableFromAction $expanded
+        $exeExpanded = if ($exe) { [Environment]::ExpandEnvironmentVariables($exe) } else { $null }
+        $exists = $false
+        $signature = $null
+        $hash = $null
+        try {
+            if ($exeExpanded -and (Test-Path $exeExpanded)) {
+                $exists = $true
+                $signature = Get-AuthenticodeSignature $exeExpanded
+                $hash = (Get-FileHash $exeExpanded -Algorithm SHA256).Hash
+            }
+        } catch {
+            # ignore erros de permissão
+        }
+
+        # Heurísticas
+        $suspicionReasons = @()
+        if ($userPathPatterns | ForEach-Object { $expanded -match $_ } ) {
+            $suspicionReasons += "Executes from user/temp path"
+        }
+        if ($expanded -match $encodedPS) {
+            $suspicionReasons += "Encoded PowerShell command"
+        }
+        if ($expanded -match $abusedUtils) {
+            $suspicionReasons += "Uso de utilitário frequentemente abusado"
+        }
+        if ($expanded -match $urlOrIP) {
+            $suspicionReasons += "Contém URL ou IP nas args"
+        }
+        if ($runLevel -eq "Highest") {
+            $suspicionReasons += "Executa com privilégios elevados"
+        }
+        if ($hidden) {
+            $suspicionReasons += "Task oculta"
+        }
+        if ($task.TaskPath -notmatch "Microsoft" -and $task.TaskName -match "(?i)update|updater|svchost|security|windowsupdate|installer" ) {
+            $suspicionReasons += "Nome enganoso (parece sistema mas não Microsoft)"
+        }
+        # assinatura inválida ou faltante
+        $signatureStatus = $signature.Status.ToString() 2>$null
+        if ($exists -and $signatureStatus -in @("NotSigned","UnknownError","HashMismatch")) {
+            $suspicionReasons += "Executável sem assinatura válida ($signatureStatus)"
+        }
+        # arquivo não existe no caminho declarado
+        if ($exeExpanded -and -not $exists) {
+            $suspicionReasons += "Executável não encontrado no caminho indicado"
+        }
+
+        $results += [PSCustomObject]@{
+            TaskName       = $task.TaskName
+            TaskPath       = $task.TaskPath
+            ActionRaw      = $rawAction
+            ActionExpanded = $expanded
+            Executable     = $exeExpanded
+            FileExists     = $exists
+            SignerStatus   = if ($signature) { $signature.Status.ToString() } else { "" }
+            SignerSubject  = if ($signature -and $signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { "" }
+            SHA256         = $hash
+            Triggers       = $triggers
+            RunLevel       = $runLevel
+            Hidden         = $hidden
+            Suspicious     = ($suspicionReasons.Count -gt 0)
+            Reasons        = ($suspicionReasons -join "; ")
+        }
+    }
+}
+
+$results | Sort-Object -Property Suspicious, TaskPath, TaskName 
+#| Export-Csv -Path $OutFile -NoTypeInformation -Encoding UTF8
+Write-Host "Análise salva em $OutFile"
+# Também exibe apenas os suspeitos no console
+#$results | Where-Object { $_.Suspicious } | Select-Object TaskPath, TaskName, Executable, SignerStatus, SHA256, Reasons | Format-Table -AutoSize

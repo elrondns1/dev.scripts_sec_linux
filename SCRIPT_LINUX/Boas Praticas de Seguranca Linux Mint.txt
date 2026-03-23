@@ -1,0 +1,62 @@
+
+sudo apt update && sudo apt upgrade
+
+    sudo ufw reset
+    sudo ufw default deny incoming
+    sudo ufw default deny outgoing
+    
+    sudo ufw allow out 123/udp
+
+Ver portas sendo utilizadas por processos
+    
+    sudo lsof -i -P -n
+    sudo netstat -tunp
+
+    sudo ufw app list
+
+Criar modo tudo bloqueado UFW
+
+#!/bin/bash
+sudo ufw --force reset
+sudo ufw default deny incomming
+sudo ufw default deny outgoing
+sudo ufw allow out 53/udp
+sudo ufw allow out 67,68/udp
+sudo ufw enable
+echo "[UFW] Tudo bloqueado (somente DNS e DHCP para rede funcionar)"
+
+
+sudo nano /usr/local/bin/fw-off
+sudo chmod +x /usr/local/bin/fw-off
+
+#!/bin/bash
+sudo ufw disable
+sudo ufw default deny incomming
+sudo ufw default deny outgoing
+
+#Necessario para internet funcionar
+sudo ufw allow out 53/udp
+sudo ufw allow out 67,68/udp
+
+#permitir apenas navegacao (qualquer navegador usa 80/443)
+sudo ufw allow out 80/tco
+sudo ufw allow out 443/tcp
+
+sudo ufw enable
+echo "[UFW] Apenas navegacao liberada)"
+
+
+
+Listar servicoes para eliminar os que nao sao usados
+
+systemctl list-unit-files --type=service --state=enabled
+
+sudo apt update && sudo apt upgrade
+sudo apt install ufw fail2ban rkhunter lynis auditdanattended-upgradess apt-listchanges 
+
+
+
+
+
+
+

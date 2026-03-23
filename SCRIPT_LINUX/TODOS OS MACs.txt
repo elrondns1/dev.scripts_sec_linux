@@ -1,0 +1,20 @@
+
+MODEM MERCUSYS
+
+Tipo de Conexão de Internet:
+PPPoE
+Endereço IP: 100.72.203.44
+Máscara de Sub-rede: 255.255.255.255
+Gateway Padrão: 100.75.240.241
+DNS Primário: 9.9.9.9
+DNS Secundário: 1.1.1.1
+
+Endereço MAC: 00-EB-D8-AA-B7-C6
+
+----------------------------------------------------------------------
+
+DT1 - SERVIDOR PROXMOX / UMBREL
+
+laraEthernet - 18:C0:4D:74:8D:91
+
+laraWireles - 14:EB:B6:44:6F:3A

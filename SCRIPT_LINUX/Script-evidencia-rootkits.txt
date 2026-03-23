@@ -1,0 +1,116 @@
+Perfeito — montei um **script em batch (.bat)** que faz a coleta dos mesmos artefatos (drivers, serviços, processos, tarefas, chaves de Run, arquivos recentes em locais suspeitos, prefetch, BCD etc.) e salva tudo em uma pasta no Desktop. Como você não pode usar PowerShell, o script usa apenas comandos nativos do CMD. No final ele **tenta** criar um .zip usando `tar` (presente em Windows 10/11), mas se `tar` não estiver disponível ele avisa para você compactar a pasta manualmente.
+
+Cole o conteúdo abaixo em um arquivo chamado, por exemplo, `coleta_rootkit_cmd.bat` e execute **como Administrador** (clique direito → Executar como administrador).
+
+```bat
+@echo off
+setlocal enabledelayedexpansion
+
+rem --- Caminho de saída (Desktop)
+set OutDir=%USERPROFILE%\Desktop\Coleta_Rootkit
+if exist "%OutDir%" rd /s /q "%OutDir%"
+mkdir "%OutDir%"
+
+echo [1/12] Coletando drivers...
+driverquery /v /fo list > "%OutDir%\drivers.txt" 2>nul
+dir /s /b "C:\Windows\System32\drivers\*.sys" > "%OutDir%\drivers_list_sys.txt" 2>nul
+
+echo [2/12] Coletando serviços...
+wmic service get Name,DisplayName,PathName,StartMode,State /format:csv > "%OutDir%\servicos.csv" 2>nul
+sc query type= driver > "%OutDir%\sc_query_drivers.txt" 2>nul
+
+echo [3/12] Coletando processos e módulos...
+tasklist /v > "%OutDir%\processos.txt" 2>nul
+tasklist /m > "%OutDir%\processos_modulos.txt" 2>nul
+
+echo [4/12] Coletando tarefas agendadas...
+schtasks /query /fo LIST /v > "%OutDir%\tarefas.txt" 2>nul
+
+echo [5/12] Exportando chaves de autoexecução (Run) e IFEO/AppInit...
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /s > "%OutDir%\reg_run_hklm.txt" 2>nul
+reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /s > "%OutDir%\reg_run_hkcu.txt" 2>nul
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows" /v AppInit_DLLs > "%OutDir%\reg_appinit.txt" 2>nul
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options" /s > "%OutDir%\reg_ifeo.txt" 2>nul
+
+echo [6/12] Coletando Prefetch (se existir)...
+if exist "C:\Windows\Prefetch" (
+  dir /b "C:\Windows\Prefetch" > "%OutDir%\prefetch_list.txt"
+)
+
+echo [7/12] Coletando BCD/boot config...
+bcdedit /enum all > "%OutDir%\bcdedit.txt" 2>nul
+
+echo [8/12] Procurando arquivos executáveis/DLL/sys/PS1/js/vbs recentes em locais suspeitos (ultimos 10 dias)...
+rem -> usamos forfiles nos diretórios principais para evitar vasculhar todo C: (muito lento)
+for %%D in ("%USERPROFILE%\AppData\Local\Temp" "%USERPROFILE%\AppData\Roaming" "%USERPROFILE%\Desktop" "C:\Windows\Temp" "C:\Temp" "%USERPROFILE%\Downloads") do (
+  if exist "%%~D" (
+    echo --- pesquisando %%~D >> "%OutDir%\arquivos_suspeitos.txt"
+    forfiles /p "%%~D" /s /m *.* /d -10 /c "cmd /c if @isdir==FALSE (echo @path @fdate @ftime @fsize)" >> "%OutDir%\arquivos_suspeitos.txt" 2>nul
+  )
+)
+
+echo [9/12] Listando arquivos com atributos hidden/system em locais estratégicos...
+attrib /s C:\Users\*.* > "%OutDir%\atributos_usuarios.txt" 2>nul
+dir /s /b "C:\$Recycle.Bin" > "%OutDir%\recycle_bin_list.txt" 2>nul 2>nul
+
+echo [10/12] Listando atalhos e startup...
+dir /s /b "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Startup" > "%OutDir%\startup_allusers.txt" 2>nul
+dir /s /b "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup" > "%OutDir%\startup_user.txt" 2>nul
+dir /s /b "%ProgramFiles%" > "%OutDir%\programfiles_list.txt" 2>nul
+dir /s /b "%ProgramFiles(x86)%" > "%OutDir%\programfilesx86_list.txt" 2>nul
+
+echo [11/12] Coletando eventos básicos de logs (Security/System/Application - últimas 500 linhas cada, se possível)...
+wevtutil qe System /f:text /c:500 > "%OutDir%\event_system.txt" 2>nul
+wevtutil qe Application /f:text /c:500 > "%OutDir%\event_application.txt" 2>nul
+wevtutil qe Security /f:text /c:500 > "%OutDir%\event_security.txt" 2>nul
+
+echo [12/12] Salvando HOSTS e rede...
+type "%windir%\system32\drivers\etc\hosts" > "%OutDir%\hosts.txt" 2>nul
+ipconfig /all > "%OutDir%\ipconfig_all.txt" 2>nul
+netstat -ano > "%OutDir%\netstat_ano.txt" 2>nul
+
+rem --- tentativa de compactar usando tar (se disponível)
+set ZipPath=%USERPROFILE%\Desktop\Coleta_Rootkit.zip
+where tar >nul 2>nul
+if %ERRORLEVEL%==0 (
+  echo Tentando criar ZIP com tar...
+  rem - a = auto-compress (zip), -c create, -f filename, -C change dir
+  tar -a -c -f "%ZipPath%" -C "%OutDir%" . 2>nul
+  if %ERRORLEVEL%==0 (
+    echo.
+    echo ✅ Coleta concluida. Arquivos salvos em: %ZipPath%
+    echo Pasta de trabalho: %OutDir%
+    goto end
+  ) else (
+    echo Aviso: falha ao criar ZIP com tar.
+  )
+) else (
+  echo tar nao encontrado no sistema.
+)
+
+echo .
+echo =========================================================
+echo A coleta foi salva em: %OutDir%
+echo Nao foi possivel criar o arquivo .zip automaticamente.
+echo Compacte manualmente a pasta "%OutDir%" (clique com o botao direito -> Enviar para -> Pasta compactada).
+echo =========================================================
+
+:end
+echo Finalizado.
+pause
+endlocal
+```
+
+### Observações importantes
+
+1. **Execute como Administrador** — muitos comandos listados exigem privilégios elevados para devolver informação completa (drivers, serviços, etc.).
+2. O script **não** tenta modificar o sistema — apenas consulta e salva informações.
+3. Se o `tar` existir, o script cria `Coleta_Rootkit.zip` no Desktop automaticamente. Se não existir, compacte a pasta manualmente (clic direito → Enviar para → Pasta compactada).
+4. O forfiles usado limita a busca a pastas críticas (usuário, Temp, Downloads) para não demorar demais; se quiser que eu altere para escanear todo C: avise (atenção: será bem lento).
+5. Se preferir, posso adicionar:
+
+   * exportação das chaves de registro (`reg export`) (precisa geralmente de privilégio),
+   * coleta do MBR (requer ferramentas e cuidado),
+   * integração com ferramentas Sysinternals (Autoruns/sigcheck) — porém exige download.
+
+Quer que eu gere uma versão que também **exporte as chaves de registro** com `reg export` e inclua essa exportação no zip (se possível)? Posso já te mostrar o .bat com essa opção ativa (vai exigir admin).
